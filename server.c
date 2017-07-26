@@ -122,11 +122,50 @@ int main()
 						printf("Ket noi moi tu %s tren socket %d", inet_ntop(remoteaddr.ss_family, get_in_addr((struct sockaddr_storage*) &remoteaddr), remoteIP, INET6_ADDRSTRLEN), newfd));
 					}
 				}
+				else // nhan du lieu tu client
+				{
+					
+					int nbytes;
+					char buf[256];
+					if((nbytes = recv(iii, buf, sizeof buf, 0) <= 0) // ngat hoac bi loi
+					{
+						if(nbytes == 0)
+						{
+							// ket noi bi ngat
+							printf("socket %d ket thuc\n", iii);
+						}
+						else
+						{
+							// loi
+							perror("loi recv");
+						}
+						close(iii);
+						FD_ZERO(iii, &master);
+					}
+					else
+					{
+						// nhan duoc du lieu
+						// gui toi cho moi nguoi
+						int jjj;
+						for(jjj = 0; jjj <= fdmax; jjj++)
+						{
+							if(jjj != listener && jjj != iii)
+							{
+								// gui 
+								if(send(jjj, buf, nbytes, 0) == -1)
+									perror("loi send");
+							}
+						}
+					}  // END ngat hoac bi loi
+				} // END nhan du lieu tu client
+								
+						
+						
 				
-			}
-		}
+			} // END chinh la nay
+		} // END tim trong ket noi hien tai
 		
-	}
+	} // END main loop
 	
 	
 	
