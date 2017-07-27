@@ -163,8 +163,10 @@ int main()
 							{
 								if(jjj != listener && jjj != iii)
 								{
+									char buf2[256];
+									sprintf(buf2, "Client %d: %s", iii, buf);
 									// gui 
-									if(send(jjj, buf, nbytes, 0) == -1)
+									if(send(jjj, buf2, nbytes, 0) == -1)
 										perror("loi send");
 									printf("Gui thanh cong cho %d\n", jjj);
 								}
