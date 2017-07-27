@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
-#define PORT "8112"
+#define PORT "9034"
 
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -25,16 +25,17 @@ int main()
 	struct addrinfo hints, *ai, *p;
 	
 	// khai bao host muon convert
+	memset(&hints, 0, sizeof hints);
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_prototype = AI_PASSIVE;
+	hints.ai_flags = AI_PASSIVE;
 	
 	
 	
 	int rv;
-	if((rv=getaddrinfo(NULL, PORT, &hint, &ai)) != 0)
+	if((rv=getaddrinfo(NULL, PORT, &hints, &ai)) != 0)
 	{
-		fprintf(stderr, "%s\n", gai_strerror(rv));
+		fprintf(stderr, "loi selectserver: %s\n", gai_strerror(rv));
 		exit(1);
 	}
 	
@@ -43,7 +44,7 @@ int main()
 	
 	for(p = ai; p != NULL; p = p->ai_next)
 	{
-		listener = socket(p->ai_family, p->ai_socktype, p->ai_prototype);
+		listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 		if(listener < 0)
 			continue;
 		
@@ -53,7 +54,11 @@ int main()
 		}
 		
 		if(bind(listener, p->ai_addr, p->ai_addrlen) < 0)
+		{
+			close(listener);
 			continue;
+		}
+		break;
 	}
 	
 	
@@ -71,6 +76,8 @@ int main()
 		perror("loi listen\n");
 		exit(3);
 	}
+
+	printf("Waiting ...\n");
 	
 	// them listener vao master set
 	fd_set master;
@@ -80,7 +87,7 @@ int main()
 	
 	int fdmax;
 	fd_set read_fds;
-	FD_ZERO(&read_fds)
+	FD_ZERO(&read_fds);
 	// max luc nay la listener
 	fdmax = listener;
 	
@@ -88,26 +95,29 @@ int main()
 	while(1)
 	{
 		read_fds = master;
-		if(select(fdmax + 1, read_fds, NULL, NULL, NULL) == -1)
+		if(select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1)
 		{
 			perror("loi select\n");
 			exit(4);
 		}
+
+		printf("Co tin hieu. Dang tim nguon goc ...\n");
 		
 		// tim trong cac ket noi hien tai
 		int iii;
-		for(iii = 0; iii < = fdmax; iii++)
+		for(iii = 0; iii <= fdmax; iii++)
 		{
-			if(FD_ISSET(iii, read_fds)) // chinh la nay
+			if(FD_ISSET(iii, &read_fds)) // chinh la nay
 			{
 				if(iii == listener) // co ket noi moi
 				{
+					printf("Co ket noi moi\n");
 					int newfd;
 					struct sockaddr_storage remoteaddr;
 					socklen_t addrlen;
 					char remoteIP[INET6_ADDRSTRLEN];
 					addrlen = sizeof remoteaddr;
-					newfd = accept(listener, (struct sockaddr*) &remoteaddr, addrlen);
+					newfd = accept(listener, (struct sockaddr*) &remoteaddr, &addrlen);
 					if(newfd == -1)
 					{
 						perror("loi accept\n");
@@ -119,15 +129,15 @@ int main()
 						if(newfd > fdmax)
 							fdmax = newfd;
 						// thong bao tren console
-						printf("Ket noi moi tu %s tren socket %d", inet_ntop(remoteaddr.ss_family, get_in_addr((struct sockaddr_storage*) &remoteaddr), remoteIP, INET6_ADDRSTRLEN), newfd));
+						printf("Ket noi moi tu %s tren socket %d\n", inet_ntop(remoteaddr.ss_family, get_in_addr((struct sockaddr*) &remoteaddr), remoteIP, INET6_ADDRSTRLEN), newfd);
 					}
 				}
 				else // nhan du lieu tu client
 				{
-					
+					printf("Tin nhan tu client %d\n", iii);
 					int nbytes;
 					char buf[256];
-					if((nbytes = recv(iii, buf, sizeof buf, 0) <= 0) // ngat hoac bi loi
+					if((nbytes = recv(iii, buf, sizeof buf, 0)) <= 0) // ngat hoac bi loi
 					{
 						if(nbytes == 0)
 						{
@@ -140,7 +150,7 @@ int main()
 							perror("loi recv");
 						}
 						close(iii);
-						FD_ZERO(iii, &master);
+						FD_CLR(iii, &master);
 					}
 					else
 					{
@@ -149,11 +159,15 @@ int main()
 						int jjj;
 						for(jjj = 0; jjj <= fdmax; jjj++)
 						{
-							if(jjj != listener && jjj != iii)
+							if(FD_ISSET(jjj, &master))
 							{
-								// gui 
-								if(send(jjj, buf, nbytes, 0) == -1)
-									perror("loi send");
+								if(jjj != listener && jjj != iii)
+								{
+									// gui 
+									if(send(jjj, buf, nbytes, 0) == -1)
+										perror("loi send");
+									printf("Gui thanh cong cho %d\n", jjj);
+								}
 							}
 						}
 					}  // END ngat hoac bi loi
