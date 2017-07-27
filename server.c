@@ -1,28 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
 #include <string.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <netdb.h>
 #include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
+#include <netdb.h>
 
-#define PORT "3490"
-#define BACKLOG 10
-
-void sigchld_handler(int s)
-{
-    // waitpid() might overwrite errno, so we save and restore it:
-    int saved_errno = errno;
-
-    while(waitpid(-1, NULL, WNOHANG) > 0);
-
-    errno = saved_errno;
-}
+#define PORT "9034"
 
 void *get_in_addr(struct sockaddr *sa)
 {
@@ -33,106 +19,175 @@ void *get_in_addr(struct sockaddr *sa)
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-
 int main()
 {
-	int sockfd, new_fd;
-	struct addrinfo hints, *servinfo, *p;
-	struct sockaddr_storage their_addr;
-	socklen_t sin_size;
-	struct sigaction sa;
-	int yes = 1;
-	char s[INET6_ADDRSTRLEN];
-	int rv;
+	int listener, new_fd;
+	struct addrinfo hints, *ai, *p;
 	
+	// khai bao host muon convert
 	memset(&hints, 0, sizeof hints);
-	hints.ai_family = AF_UNPSEC:
+	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_flags = AI_PASSIVE;
 	
-	// lay thong tin cua domain
-	if((rv = getaddrinfo(NULL, PORT, &hint, &servinfo)) != 0)
+	
+	
+	int rv;
+	if((rv=getaddrinfo(NULL, PORT, &hints, &ai)) != 0)
 	{
-		fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-		return 1;
-	}
-	
-	for(p = servinfo; p != NULL; p=p->ai_next)
-	{
-		if((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) != 0)
-		{
-			perror("server: socket");
-			continue;
-		}	
-	
-		// tranh tinh trang port da su dung
-		if(setsockopt(sockfd,SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-		{
-			perror("setsockopt");
-			exit(1);
-		}
-		
-		if(bind(sockfd, p->ai_addr, p->ai_addrlen) == -1)
-		{
-			close(sockfd);
-			perror("server: error");
-			continue;
-		}
-		
-		break;
-	}
-	
-	freeaddrinfo(servinfo); // xong
-	
-	if(p == NULL)
-	{
-		fprintf(stderr, "server: failed to bind\n");
-		exit(1)
-	}
-	
-	if(listen(sockfd, BACKLOG) == -1)
-	{
-		perror("listen");
+		fprintf(stderr, "loi selectserver: %s\n", gai_strerror(rv));
 		exit(1);
 	}
 	
-    sa.sa_handler = sigchld_handler; // reap all dead processes
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1) 
-	{
-        perror("sigaction");
-        exit(1);
-    }	
-
-	printf("server: waiting for connections...\n");
+	// duyet de tim ra thang co the bind
 	
-	while(1)
+	
+	for(p = ai; p != NULL; p = p->ai_next)
 	{
-		sin_size = sizeof their_addr;
-		new_fd = accept(sockfd, (struct sockaddr *)&their_addr);
-		if(new_fd == -1)
+		listener = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+		if(listener < 0)
+			continue;
+		
 		{
-			perror("accept");
+			int yes = 1;
+			setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+		}
+		
+		if(bind(listener, p->ai_addr, p->ai_addrlen) < 0)
+		{
+			close(listener);
 			continue;
 		}
-		
-		inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *) &their_addr), s, sizeof s);
-		printf("server: got connection from %s\n", s);
-		
-		if(!fork())
-		{
-			close(sockfd);
-			if(send(new_fd, "Hello, World", 13, 0) == -1)
-				perror("send");
-			close(new_fd);
-			exit(0);
-		}
-		
-		close(sockfd);
+		break;
 	}
 	
+	
+	// neu khong co cai nao gan duoc
+	if(p == NULL)
+	{
+		fprintf(stderr, "chon server: that bai de bind\n");
+		exit(2);
+	}
+	
+	
+	// nghe tin tu socket nay
+	if(listen(listener, 10) < 0)
+	{
+		perror("loi listen\n");
+		exit(3);
+	}
+
+	printf("Waiting ...\n");
+	
+	// them listener vao master set
+	fd_set master;
+	FD_ZERO(&master);
+	FD_SET(listener, &master);
+	
+	
+	int fdmax;
+	fd_set read_fds;
+	FD_ZERO(&read_fds);
+	// max luc nay la listener
+	fdmax = listener;
+	
+	// main loop
+	while(1)
+	{
+		read_fds = master;
+		if(select(fdmax + 1, &read_fds, NULL, NULL, NULL) == -1)
+		{
+			perror("loi select\n");
+			exit(4);
+		}
+
+		printf("Co tin hieu. Dang tim nguon goc ...\n");
+		
+		// tim trong cac ket noi hien tai
+		int iii;
+		for(iii = 0; iii <= fdmax; iii++)
+		{
+			if(FD_ISSET(iii, &read_fds)) // chinh la nay
+			{
+				if(iii == listener) // co ket noi moi
+				{
+					printf("Co ket noi moi\n");
+					int newfd;
+					struct sockaddr_storage remoteaddr;
+					socklen_t addrlen;
+					char remoteIP[INET6_ADDRSTRLEN];
+					addrlen = sizeof remoteaddr;
+					newfd = accept(listener, (struct sockaddr*) &remoteaddr, &addrlen);
+					if(newfd == -1)
+					{
+						perror("loi accept\n");
+						exit(5);
+					}
+					else
+					{
+						FD_SET(newfd, &master); // them vao master set
+						if(newfd > fdmax)
+							fdmax = newfd;
+						// thong bao tren console
+						printf("Ket noi moi tu %s tren socket %d\n", inet_ntop(remoteaddr.ss_family, get_in_addr((struct sockaddr*) &remoteaddr), remoteIP, INET6_ADDRSTRLEN), newfd);
+					}
+				}
+				else // nhan du lieu tu client
+				{
+					printf("Tin nhan tu client %d\n", iii);
+					int nbytes;
+					char buf[256];
+					if((nbytes = recv(iii, buf, sizeof buf, 0)) <= 0) // ngat hoac bi loi
+					{
+						if(nbytes == 0)
+						{
+							// ket noi bi ngat
+							printf("socket %d ket thuc\n", iii);
+						}
+						else
+						{
+							// loi
+							perror("loi recv");
+						}
+						close(iii);
+						FD_CLR(iii, &master);
+					}
+					else
+					{
+						// nhan duoc du lieu
+						// gui toi cho moi nguoi
+						int jjj;
+						for(jjj = 0; jjj <= fdmax; jjj++)
+						{
+							if(FD_ISSET(jjj, &master))
+							{
+								if(jjj != listener && jjj != iii)
+								{
+									char buf2[256];
+									sprintf(buf2, "Client %d: %s", iii, buf);
+									// gui 
+									if(send(jjj, buf2, nbytes, 0) == -1)
+										perror("loi send");
+									printf("Gui thanh cong cho %d\n", jjj);
+								}
+							}
+						}
+					}  // END ngat hoac bi loi
+				} // END nhan du lieu tu client
+								
+						
+						
+				
+			} // END chinh la nay
+		} // END tim trong ket noi hien tai
+		
+	} // END main loop
+	
+	
+	
+	
+	
+	
+	
 	return 0;
-	
-	
 }
